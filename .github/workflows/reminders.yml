@@ -10,7 +10,12 @@ jobs:
       - name: Check and deliver reminders
         env:
           SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_JWT: ${{ secrets.SUPABASE_ANON_JWT }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          test -n "$SUPABASE_URL" && test -n "$CRON_SECRET"
-          curl --fail-with-body --retry 2 -X POST "$SUPABASE_URL/functions/v1/reminders" -H "x-cron-secret: $CRON_SECRET" -H 'Content-Type: application/json' -d '{}'
+          test -n "$SUPABASE_URL" && test -n "$SUPABASE_ANON_JWT" && test -n "$CRON_SECRET"
+          curl --fail-with-body --retry 2 -X POST "$SUPABASE_URL/functions/v1/reminders" \
+            -H "Authorization: Bearer $SUPABASE_ANON_JWT" \
+            -H "apikey: $SUPABASE_ANON_JWT" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H 'Content-Type: application/json' -d '{}'
