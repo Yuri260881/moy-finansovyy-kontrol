@@ -1,0 +1,9 @@
+project_id = "my-financial-control"
+[functions.google-oauth]
+verify_jwt = false
+[functions.reminders]
+verify_jwt = false
+[functions.calendar-sync]
+verify_jwt = false
+[functions.account-data]
+verify_jwt = false
