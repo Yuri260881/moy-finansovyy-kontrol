@@ -1,7 +1,8 @@
 import { json, service, cors } from "../_shared/core.ts";
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
-  if (req.headers.get("x-cron-secret") !== Deno.env.get("CRON_SECRET"))
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret)
     return json({ error: "Forbidden" }, 403);
   try {
     let sent = 0;
