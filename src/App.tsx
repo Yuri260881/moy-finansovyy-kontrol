@@ -33,7 +33,7 @@ import {
 import { toXlsx, parseXlsx, parseCsv, rowsToObjects } from "./spreadsheet";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { supabase, configured, invoke } from "./supabase";
+import { supabase, configured, invoke, loginEmail } from "./supabase";
 import {
   empty,
   type Data,
@@ -109,23 +109,14 @@ function csv(rows: (string | number)[][]) {
   );
 }
 function Auth() {
-  const [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [signup, setSignup] = useState(false),
+  const [password, setPassword] = useState(""),
     [msg, setMsg] = useState(""),
     [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const r = signup
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-    setMsg(
-      r.error?.message ||
-        (signup
-          ? "Аккаунт создан. Если включено подтверждение почты, откройте ссылку в письме."
-          : ""),
-    );
+    const r = await supabase.auth.signInWithPassword({ email: loginEmail!, password });
+    setMsg(r.error ? "Не удалось войти. Проверьте пароль и повторите попытку." : "");
     setBusy(false);
   }
   return (
@@ -136,21 +127,11 @@ function Auth() {
         <p>Обязательства и расходы бизнеса в одном месте.</p>
         {!configured ? (
           <div className="notice">
-            Для запуска укажите VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в
+            Для запуска укажите VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY и VITE_LOGIN_EMAIL в
             .env. Инструкция есть в README.md.
           </div>
         ) : (
           <form onSubmit={submit}>
-            <label>
-              Электронная почта
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
             <label>
               Пароль
               <input
@@ -159,21 +140,11 @@ function Auth() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete={signup ? "new-password" : "current-password"}
+                autoComplete="current-password"
               />
             </label>
             <button className="primary" disabled={busy}>
-              {signup ? "Создать аккаунт" : "Войти"}
-            </button>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => {
-                setSignup(!signup);
-                setMsg("");
-              }}
-            >
-              {signup ? "Уже есть аккаунт? Войти" : "Создать аккаунт"}
+              Войти
             </button>
             {msg && <p role="alert">{msg}</p>}
           </form>
