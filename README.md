@@ -18,7 +18,7 @@
 ```bash
 npm ci
 cp .env.example .env.local
-# В .env.local впишите VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY
+# В .env.local впишите VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY и VITE_LOGIN_EMAIL
 npm run dev
 ```
 
@@ -27,7 +27,7 @@ npm run dev
 ## 1. Supabase
 
 1. Создайте проект Supabase. В **Project Settings → API** скопируйте URL и **publishable/anon key**. Это публичные значения для `VITE_`; **service role/secret key не помещайте в `.env.local` фронтенда**.
-2. В **Authentication → Providers → Email** включите вход по почте. Настройте подтверждение email, если оно нужно. В **URL Configuration** укажите Site URL вида `https://USERNAME.github.io/REPOSITORY/` и при необходимости разрешенные redirect URL.
+2. В **Authentication → Providers → Email** оставьте вход с паролем. В **Authentication → Users → Add user** создайте единственного пользователя с техническим идентификатором `owner@fincontrol.example` и задайте пароль самостоятельно в интерфейсе Supabase. Подтвердите запись при создании, затем отключите открытую регистрацию новых пользователей в настройках Auth. Этот адрес используется внутри Supabase как идентификатор; на экране входа запрашивается только пароль. В **URL Configuration** укажите Site URL вида `https://USERNAME.github.io/REPOSITORY/`. Для восстановления пароля используйте панель администратора Supabase; общедоступной кнопки восстановления здесь нет.
 3. Установите [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) и выполните:
 
 ```bash
@@ -40,7 +40,7 @@ npx supabase functions deploy reminders
 npx supabase functions deploy account-data
 ```
 
-4. Миграции создают приватный bucket `receipts`, RLS и начальные записи при регистрации. Новому пользователю сразу доступны Взлетная, Демократическая, Свердлова, Вардане, Костромская и три карточки сотрудников. Реальные суммы и даты остаются пустыми.
+4. Миграции создают приватный bucket `receipts`, RLS и начальные записи при создании пользователя. Ему сразу доступны Взлетная, Демократическая, Свердлова, Вардане, Костромская и три карточки сотрудников. Реальные суммы и даты остаются пустыми.
 5. В **Edge Functions → Secrets** или CLI задайте секреты. Пример: `npx supabase secrets set TOKEN_ENCRYPTION_KEY=... CRON_SECRET=...`. Ключ шифрования токенов — длинная случайная строка; сохраните его отдельно, потеря сделает прежние Google refresh токены нечитаемыми. `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` предоставляются платформой для функций.
 
 ### Права доступа
@@ -60,7 +60,7 @@ OAuth refresh токен шифруется AES-GCM и хранится толь
 
 1. Создайте бота через BotFather. Задайте `TELEGRAM_BOT_TOKEN` как секрет функции Supabase, не добавляйте его в репозиторий. Напишите боту `/start`, получите свой числовой chat ID через `getUpdates` API бота и введите его в настройках приложения. Включите канал Telegram.
 2. Для почты создайте API ключ Resend и подтвердите домен отправителя. Укажите серверные `MAIL_PROVIDER_API_KEY` и `MAIL_FROM`, затем включите почту в настройках. Получатель — почта аккаунта.
-3. Задайте одинаковый `CRON_SECRET` в Supabase Edge Function Secrets и GitHub **Settings → Secrets and variables → Actions → Repository secrets**. В Supabase оставьте для функции `reminders` включённой проверку **Verify JWT with legacy secret**. На странице **Project Settings → API Keys → Legacy anon, service_role API keys** скопируйте только публичный `anon` JWT и сохраните его в GitHub Repository secrets под именем `SUPABASE_ANON_JWT`. Не копируйте `service_role`. Workflow `reminders.yml` запускается ежечасно, передаёт JWT и отдельный секрет и вызывает серверную функцию. В GitHub repository variable задайте `VITE_SUPABASE_URL`.
+3. Задайте одинаковый `CRON_SECRET` в Supabase Edge Function Secrets и GitHub **Settings → Secrets and variables → Actions → Repository secrets**. Workflow `reminders.yml` запускается ежечасно и вызывает серверную функцию. В GitHub repository variable задайте `VITE_SUPABASE_URL`.
 4. Установите часовой пояс пользователя. Расписание проверяется по локальному дню пользователя. Для каждого срока и канала отправка фиксируется в `reminder_log`; после полной оплаты новые напоминания не отправляются. Ошибки доставки видны в логах Edge Functions; повторный часовой запуск попробует отправить снова.
 
 Для уведомлений во внутреннем журнале приложение должно хотя бы раз открыть настройки после серверной проверки; сам сервер работает при закрытом приложении. Почасовое расписание GitHub Actions может выполняться с задержкой, поэтому не полагайтесь на точную минуту доставки.
@@ -78,7 +78,7 @@ git remote add origin https://github.com/USERNAME/REPOSITORY.git
 git push -u origin main
 ```
 
-2. В **Settings → Secrets and variables → Actions → Variables** задайте `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY`.
+2. В **Settings → Secrets and variables → Actions → Variables** задайте `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` и `VITE_LOGIN_EMAIL=owner@fincontrol.example`. Эти значения попадают в публичную сборку; никогда не используйте здесь настоящий пароль.
 3. В **Settings → Pages → Build and deployment** выберите **GitHub Actions**. После push в `main` workflow соберет сайт с базовым путем `/REPOSITORY/` и опубликует его. Для установки на телефон откройте сайт по HTTPS и используйте «Добавить на главный экран».
 4. Финансовая база не публикуется вместе с сайтом. Публичные `VITE_` значения не являются секретами; безопасность обеспечивают Auth и RLS.
 
@@ -104,6 +104,6 @@ node scripts/restore.mjs fincontrol-backup.json USER_UUID
 
 ## Проверка сценариев
 
-`npm test && npm run build` — автоматические проверки и производственная сборка. После настройки Supabase проверьте вручную: регистрация и пять объектов; ежемесячная аренда Взлетной; частичная и полная оплата с изменением показателей; зарплата трех сотрудников; налог и отчет; просмотр месяца/недели/дня/списка; запуск `reminders` и запись в журнал; Google OAuth и повторная синхронизация; экспорт и восстановление в тестовом проекте; открытие на телефоне.
+`npm test && npm run build` — автоматические проверки и производственная сборка. После настройки Supabase проверьте вручную: вход по паролю и пять объектов; ежемесячная аренда Взлетной; частичная и полная оплата с изменением показателей; зарплата трех сотрудников; налог и отчет; просмотр месяца/недели/дня/списка; запуск `reminders` и запись в журнал; Google OAuth и повторная синхронизация; экспорт и восстановление в тестовом проекте; открытие на телефоне.
 
 Ограничения: backend не получится запустить без собственного проекта Supabase и сторонних ключей; периодические проверки GitHub Actions не гарантируют доставку в точную минуту; налоговые сроки требуют ручного ввода и проверки у бухгалтера.
