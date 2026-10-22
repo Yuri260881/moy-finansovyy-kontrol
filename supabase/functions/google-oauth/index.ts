@@ -68,6 +68,15 @@ Deno.serve(async (req) => {
       return Response.redirect(origin + base + "?google=connected", 302);
     }
     const person = await user(req);
+    if (
+      !client ||
+      !secret ||
+      !redirect ||
+      !Deno.env.get("TOKEN_ENCRYPTION_KEY")
+    )
+      throw Error(
+        "Подключение Google ещё не настроено на сервере. Нужны OAuth Client ID и секрет Google Cloud.",
+      );
     const ts = Date.now(),
       nonce = crypto.randomUUID().replaceAll("-", "");
     const raw = `${person.id}.${ts}.${nonce}`;
