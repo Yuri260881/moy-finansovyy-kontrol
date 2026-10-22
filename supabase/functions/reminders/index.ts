@@ -37,6 +37,7 @@ Deno.serve(async (req) => {
         .select("*")
         .eq("user_id", profile.id)
         .neq("status", "cancelled")
+        .is("deleted_at", null)
         .gte("due_date", date(-30))
         .lte("due_date", date(90));
       const { data: payments } = await service
@@ -135,15 +136,13 @@ Deno.serve(async (req) => {
               });
               if (!r.ok) throw Error(await r.text());
             }
-            const { error } = await service
-              .from("reminder_log")
-              .insert({
-                user_id: profile.id,
-                obligation_id: o.id,
-                channel,
-                offset_days: offset,
-                scheduled_for: today,
-              });
+            const { error } = await service.from("reminder_log").insert({
+              user_id: profile.id,
+              obligation_id: o.id,
+              channel,
+              offset_days: offset,
+              scheduled_for: today,
+            });
             if (error) throw error;
             sent++;
           } catch (e) {
