@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   empty,
   activeFinance,
+  dailyObligations,
   metrics,
   remaining,
   state,
@@ -75,4 +76,47 @@ test("trash removes obligations and their actual payments, restoration restores 
   assert.equal(restored.payments.length, 1);
   assert.equal(metrics(restored, "2026-10-01", "2026-10-31").actual, 400);
   assert.equal(source.payments.length, 1);
+});
+
+test("today shows unpaid balances and reports, without cancelled, deleted or completed tasks", () => {
+  const day = "2026-10-22";
+  const source = {
+    ...empty,
+    obligations: [
+      { ...o, due_date: day },
+      { ...o, id: "done", due_date: day },
+      { ...o, id: "cancelled", due_date: day, status: "cancelled" as const },
+      { ...o, id: "trash", due_date: day, deleted_at: "2026-10-21T09:00:00Z" },
+      {
+        ...o,
+        id: "report",
+        kind: "report" as const,
+        due_date: day,
+        planned_amount: 0,
+      },
+      {
+        ...o,
+        id: "accepted",
+        kind: "report" as const,
+        due_date: day,
+        status: "accepted" as const,
+      },
+      { ...o, id: "late", due_date: "2026-10-21" },
+      { ...o, id: "future", due_date: "2026-10-23" },
+    ],
+    payments: [
+      p,
+      { ...p, id: "done-pay", obligation_id: "done", amount: 1000 },
+    ],
+  };
+  const result = dailyObligations(source, day);
+  assert.deepEqual(
+    result.due.map((o) => o.id),
+    ["1", "report"],
+  );
+  assert.deepEqual(
+    result.overdue.map((o) => o.id),
+    ["late"],
+  );
+  assert.equal(remaining(result.due[0], source.payments), 600);
 });

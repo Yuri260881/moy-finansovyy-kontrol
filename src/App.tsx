@@ -37,6 +37,7 @@ import { supabase, configured, invoke, loginEmail } from "./supabase";
 import {
   empty,
   activeFinance,
+  dailyObligations,
   type Data,
   type Obligation,
   type Obj,
@@ -170,8 +171,9 @@ export default function App() {
     [flash, setFlash] = useState(""),
     [search, setSearch] = useState(""),
     [filterObject, setFilterObject] = useState(""),
-    [period, setPeriod] = useState<"current" | "previous" | "custom">(
-      "current",
+    [day, setDay] = useState(today()),
+    [period, setPeriod] = useState<"today" | "current" | "previous" | "custom">(
+      new URLSearchParams(location.search).has("today") ? "today" : "current",
     ),
     [customFrom, setCustomFrom] = useState(today().slice(0, 7) + "-01"),
     [customTo, setCustomTo] = useState(today()),
@@ -257,13 +259,22 @@ export default function App() {
       setFlash(err(e));
     }
   }
+  useEffect(() => {
+    const timer = setInterval(() => setDay(today()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+  const daily = dailyObligations(d, day);
+  const dueTotal = daily.due
+    .filter((o) => o.kind !== "report")
+    .reduce((sum, o) => sum + remaining(o, d.payments), 0);
   const range = useMemo(() => {
+    if (period === "today") return { from: day, to: day };
     if (period === "custom") return { from: customFrom, to: customTo };
     let dt = new Date();
     if (period === "previous")
       dt = new Date(dt.getFullYear(), dt.getMonth() - 1, 1);
     return monthRange(iso(dt));
-  }, [period, customFrom, customTo]);
+  }, [period, customFrom, customTo, day]);
   const m = metrics(d, range.from, range.to);
   const names = (o: Obligation) =>
     d.objects.find((x) => x.id === o.object_id)?.name ||
@@ -473,6 +484,12 @@ export default function App() {
         {(page === "dashboard" || page === "analytics") && (
           <div className="period">
             <button
+              className={period === "today" ? "selected" : ""}
+              onClick={() => setPeriod("today")}
+            >
+              Сегодня
+            </button>
+            <button
               className={period === "current" ? "selected" : ""}
               onClick={() => setPeriod("current")}
             >
@@ -508,6 +525,32 @@ export default function App() {
         )}
         {page === "dashboard" && (
           <>
+            <section className="panel">
+              <div className="section-head">
+                <h2>Сегодня, {dateRU(day)}</h2>
+                <strong>К оплате: {money(dueTotal)}</strong>
+              </div>
+              {daily.due.length ? (
+                <Rows items={daily.due} d={d} select={setSelected} />
+              ) : (
+                <p className="muted">
+                  На сегодня неоплаченных обязательств нет.
+                </p>
+              )}
+              {daily.overdue.length > 0 && (
+                <details className="box">
+                  <summary>
+                    Просроченные обязательства: {daily.overdue.length} ·{" "}
+                    {money(
+                      daily.overdue
+                        .filter((o) => o.kind !== "report")
+                        .reduce((sum, o) => sum + remaining(o, d.payments), 0),
+                    )}
+                  </summary>
+                  <Rows items={daily.overdue} d={d} select={setSelected} />
+                </details>
+              )}
+            </section>
             <div className="cards">
               <Stat
                 label="Оплачено за период"

@@ -205,3 +205,20 @@ export function activeFinance(d: Data): Data {
     reminders: d.reminders.filter((r) => ids.has(r.obligation_id)),
   };
 }
+
+export function dailyObligations(d: Data, date = today()) {
+  const pending = d.obligations.filter(
+    (o) =>
+      !o.deleted_at &&
+      o.status !== "cancelled" &&
+      (o.kind === "report"
+        ? o.status !== "accepted"
+        : remaining(o, d.payments) > 0),
+  );
+  return {
+    due: pending.filter((o) => o.due_date === date),
+    overdue: pending
+      .filter((o) => o.due_date < date)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date)),
+  };
+}
