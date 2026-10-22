@@ -275,7 +275,19 @@ export default function App() {
       dt = new Date(dt.getFullYear(), dt.getMonth() - 1, 1);
     return monthRange(iso(dt));
   }, [period, customFrom, customTo, day]);
-  const m = metrics(d, range.from, range.to);
+  const periodMetrics = metrics(d, range.from, range.to, day);
+  const overduePayments = daily.overdue.filter((o) => o.kind !== "report");
+  const m =
+    period === "today"
+      ? {
+          ...periodMetrics,
+          overdue: overduePayments.reduce(
+            (sum, o) => sum + remaining(o, d.payments),
+            0,
+          ),
+          overdueCount: overduePayments.length,
+        }
+      : periodMetrics;
   const names = (o: Obligation) =>
     d.objects.find((x) => x.id === o.object_id)?.name ||
     "Общие расходы бизнеса";
@@ -553,12 +565,18 @@ export default function App() {
             </section>
             <div className="cards">
               <Stat
-                label="Оплачено за период"
+                label={
+                  period === "today" ? "Оплачено сегодня" : "Оплачено за период"
+                }
                 value={money(m.actual)}
                 accent="green"
               />
               <Stat
-                label="Осталось оплатить"
+                label={
+                  period === "today"
+                    ? "Осталось на сегодня"
+                    : "Осталось оплатить"
+                }
                 value={money(m.outstanding)}
                 accent="blue"
               />
@@ -575,7 +593,7 @@ export default function App() {
                 accent="orange"
               />
               <Stat
-                label="План расходов"
+                label={period === "today" ? "План на сегодня" : "План расходов"}
                 value={money(m.plan)}
                 accent="violet"
               />
