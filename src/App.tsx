@@ -36,6 +36,7 @@ import autoTable from "jspdf-autotable";
 import { supabase, configured, invoke, loginEmail } from "./supabase";
 import {
   empty,
+  activeFinance,
   type Data,
   type Obligation,
   type Obj,
@@ -115,8 +116,13 @@ function Auth() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const r = await supabase.auth.signInWithPassword({ email: loginEmail!, password });
-    setMsg(r.error ? "Не удалось войти. Проверьте пароль и повторите попытку." : "");
+    const r = await supabase.auth.signInWithPassword({
+      email: loginEmail!,
+      password,
+    });
+    setMsg(
+      r.error ? "Не удалось войти. Проверьте пароль и повторите попытку." : "",
+    );
     setBusy(false);
   }
   return (
@@ -127,8 +133,8 @@ function Auth() {
         <p>Обязательства и расходы бизнеса в одном месте.</p>
         {!configured ? (
           <div className="notice">
-            Для запуска укажите VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY и VITE_LOGIN_EMAIL в
-            .env. Инструкция есть в README.md.
+            Для запуска укажите VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY и
+            VITE_LOGIN_EMAIL в .env. Инструкция есть в README.md.
           </div>
         ) : (
           <form onSubmit={submit}>
@@ -157,6 +163,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null),
     [loading, setLoading] = useState(true),
     [d, setD] = useState<Data>(empty),
+    [deleted, setDeleted] = useState<Obligation[]>([]),
     [page, setPage] = useState<Page>("dashboard"),
     [selected, setSelected] = useState<Obligation | null>(null),
     [form, setForm] = useState<"payment" | "tax" | "report" | null>(null),
@@ -193,7 +200,7 @@ export default function App() {
         "reminder_log",
       ] as const;
       const results = await Promise.all(tables.map(fetchAll));
-      setD({
+      const loaded: Data = {
         objects: results[0] as Obj[],
         categories: results[1] as Category[],
         employees: results[2] as Employee[],
@@ -201,7 +208,9 @@ export default function App() {
         obligations: results[4] as Obligation[],
         payments: results[5] as Data["payments"],
         reminders: results[6] as Data["reminders"],
-      });
+      };
+      setDeleted(loaded.obligations.filter((o) => o.deleted_at));
+      setD(activeFinance(loaded));
       const { data: profile } = await supabase
         .from("profiles")
         .select("setup_done")
@@ -235,7 +244,14 @@ export default function App() {
   async function run(fn: () => Promise<unknown>, success = "Сохранено") {
     try {
       await fn();
-      setFlash(success);
+      let calendarWarning = "";
+      try {
+        await invoke("calendar-sync", { action: "sync-if-connected" });
+      } catch {
+        calendarWarning =
+          " Данные сохранены, но Google Календарь не обновился. Повторите синхронизацию в настройках.";
+      }
+      setFlash(success + calendarWarning);
       setTimeout(() => setFlash(""), 5000);
     } catch (e) {
       setFlash(err(e));
@@ -641,6 +657,39 @@ export default function App() {
                 }}
               />
             </div>
+            <details className="box">
+              <summary>Корзина ({deleted.length})</summary>
+              <p className="muted">
+                Удалённые обязательства и их оплаты исключены из расчётов.
+                Восстановление возвращает запись и оплаты; повторение серии
+                автоматически не включается.
+              </p>
+              {deleted.map((o) => (
+                <div className="list-row" key={o.id}>
+                  <span>
+                    {o.title}
+                    <small>
+                      {dateRU(o.due_date)} · {money(o.planned_amount)}
+                    </small>
+                  </span>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        const { error } = await supabase.rpc(
+                          "restore_obligation",
+                          { p_id: o.id },
+                        );
+                        if (error) throw error;
+                        await reload();
+                      }, "Обязательство восстановлено")
+                    }
+                  >
+                    Восстановить
+                  </button>
+                </div>
+              ))}
+            </details>
             <Filters d={d} object={filterObject} setObject={setFilterObject} />
             <Rows
               items={items.filter(
@@ -1453,6 +1502,61 @@ function Detail({
           </button>
           <ReceiptList id={o.id} />
         </div>
+        <div className="box">
+          <h3>Удаление ошибочной записи</h3>
+          <p className="muted">
+            Запись попадёт в корзину. Её оплаты исчезнут из статистики, а
+            история и квитанции сохранятся для восстановления.
+          </p>
+          <div className="actions">
+            <button
+              className="danger"
+              onClick={() => {
+                if (
+                  !confirm(
+                    `Удалить «${o.title}» на ${dateRU(o.due_date)}? Остальные повторения останутся. Запись можно восстановить в разделе «Платежи → Корзина».`,
+                  )
+                )
+                  return;
+                run(async () => {
+                  const { error } = await supabase.rpc("trash_obligation", {
+                    p_id: o.id,
+                    p_series: false,
+                  });
+                  if (error) throw error;
+                  await reload();
+                  close();
+                }, "Платёж перемещён в корзину");
+              }}
+            >
+              <Trash2 size={16} /> Удалить этот платёж
+            </button>
+            {o.template_id && (
+              <button
+                className="danger"
+                onClick={() => {
+                  if (
+                    !confirm(
+                      `Удалить всю серию «${o.title}», включая оплаченные экземпляры, и остановить повторение? Оплаты серии будут исключены из статистики. Записи сохранятся в корзине.`,
+                    )
+                  )
+                    return;
+                  run(async () => {
+                    const { error } = await supabase.rpc("trash_obligation", {
+                      p_id: o.id,
+                      p_series: true,
+                    });
+                    if (error) throw error;
+                    await reload();
+                    close();
+                  }, "Серия перемещена в корзину, повторение остановлено");
+                }}
+              >
+                Удалить всю серию
+              </button>
+            )}
+          </div>
+        </div>
         <div className="actions">
           <button
             className="secondary"
@@ -1762,7 +1866,11 @@ function Employees({
       if (amount(salary) > 0) {
         for (const [stage, day, sum] of [
           ["Аванс", Number(day1), amount(advance)],
-          ["Окончательный расчет", Number(day2), amount(salary) - amount(advance)],
+          [
+            "Окончательный расчет",
+            Number(day2),
+            amount(salary) - amount(advance),
+          ],
         ] as const) {
           if (sum <= 0) continue;
           const first = iso(
@@ -2060,13 +2168,15 @@ function Objects({
             <span className="chip" key={c.id}>
               {c.name}{" "}
               <small>
-                ({
+                (
+                {
                   {
                     shop: "торговые точки",
                     apartment: "квартиры",
                     business: "бизнес",
                   }[c.scope]
-                })
+                }
+                )
               </small>
               <button
                 title="Переименовать"
@@ -2332,7 +2442,9 @@ function SettingsPage({
   run: (f: () => Promise<unknown>, s?: string) => Promise<void>;
   exportIcs: () => void;
 }) {
-  const [calendar, setCalendar] = useState(""),
+  const [googleReady, setGoogleReady] = useState<boolean | null>(null),
+    [googleError, setGoogleError] = useState(""),
+    [calendar, setCalendar] = useState(""),
     [calendars, setCalendars] = useState<{ id: string; summary: string }[]>([]),
     [chat, setChat] = useState(""),
     [tz, setTz] = useState("Europe/Moscow"),
@@ -2364,6 +2476,7 @@ function SettingsPage({
         }
       });
     invoke<{
+      configured: boolean;
       calendars: { id: string; summary: string }[];
       calendarId: string;
       emailEnabled: boolean;
@@ -2371,13 +2484,18 @@ function SettingsPage({
       telegramChatId: string;
     }>("calendar-sync", { action: "status" })
       .then((x) => {
+        setGoogleReady(x.configured);
         setCalendars(x.calendars || []);
         setCalendar(x.calendarId || "");
         setEmailEnabled(x.emailEnabled);
         setTelegramEnabled(x.telegramEnabled);
         setChat(x.telegramChatId || "");
       })
-      .catch(() => {});
+      .catch(() =>
+        setGoogleError(
+          "Не удалось проверить подключение Google. Проверьте связь или повторите позже.",
+        ),
+      );
   }, [uid]);
   async function backup() {
     const tables = [
@@ -2436,7 +2554,25 @@ function SettingsPage({
   return (
     <>
       <section className="panel settings">
-        <h2>Внешние календари</h2>
+        <h2>Google Календарь и уведомления</h2>
+        <p>
+          Каждый платёж появится в выбранном календаре в 09:00 по вашему
+          часовому поясу. Неоплаченные обязательства напомнят о себе в день
+          срока и заранее по настройке платежа. Изменения и удаления
+          синхронизируются после сохранения в приложении.
+        </p>
+        <p className="muted">
+          На телефоне включите уведомления Google Календаря и отображение
+          выбранного календаря. Для конфиденциальности используйте личный
+          календарь.
+        </p>
+        {googleReady === false && (
+          <p role="alert">
+            Для подключения требуется настроить Google OAuth в Supabase. Ключи
+            Google ещё не добавлены на сервере.
+          </p>
+        )}
+        {googleError && <p role="alert">{googleError}</p>}
         <div className="row">
           <button
             className="primary"
@@ -2456,7 +2592,7 @@ function SettingsPage({
           </button>
         </div>
         <p className="muted">
-          Google OAuth откроется в отдельном окне авторизации. Секреты и refresh
+          Google OAuth откроется на странице авторизации. Секреты и refresh
           токен остаются на сервере.
         </p>
         {calendars.length > 0 && (

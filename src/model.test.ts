@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   empty,
+  activeFinance,
   metrics,
   remaining,
   state,
@@ -58,4 +59,20 @@ test("cancelled and reporting tasks do not enter payment plan", () => {
     ).plan,
     0,
   );
+});
+
+test("trash removes obligations and their actual payments, restoration restores both", () => {
+  const deleted = { ...o, deleted_at: "2026-10-22T09:00:00Z" };
+  const source = { ...empty, obligations: [deleted], payments: [p] };
+  const visible = activeFinance(source);
+  assert.equal(visible.obligations.length, 0);
+  assert.equal(visible.payments.length, 0);
+  assert.equal(metrics(visible, "2026-10-01", "2026-10-31").actual, 0);
+  const restored = activeFinance({
+    ...source,
+    obligations: [{ ...deleted, deleted_at: null }],
+  });
+  assert.equal(restored.payments.length, 1);
+  assert.equal(metrics(restored, "2026-10-01", "2026-10-31").actual, 400);
+  assert.equal(source.payments.length, 1);
 });

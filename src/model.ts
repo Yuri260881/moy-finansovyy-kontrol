@@ -41,6 +41,7 @@ export type Template = {
 };
 export type Kind = "payment" | "salary" | "tax" | "report";
 export type Obligation = {
+  deleted_at?: string | null;
   id: string;
   template_id: string | null;
   kind: Kind;
@@ -190,5 +191,17 @@ export function metrics(d: Data, from: string, to: string, now = today()) {
     overdueCount: overdue.length,
     upcoming: upcoming.length,
     plan: items.reduce((a, o) => a + Number(o.planned_amount), 0),
+  };
+}
+
+// Keep removed obligations and their payments out of every financial view.
+export function activeFinance(d: Data): Data {
+  const obligations = d.obligations.filter((o) => !o.deleted_at);
+  const ids = new Set(obligations.map((o) => o.id));
+  return {
+    ...d,
+    obligations,
+    payments: d.payments.filter((p) => ids.has(p.obligation_id)),
+    reminders: d.reminders.filter((r) => ids.has(r.obligation_id)),
   };
 }
