@@ -16,8 +16,8 @@ export type Employee = {
   object_id: string | null;
   salary: number;
   advance: number;
-  day_advance: number;
-  day_final: number;
+  day_advance: number | null;
+  day_final: number | null;
   active: boolean;
 };
 export type Template = {

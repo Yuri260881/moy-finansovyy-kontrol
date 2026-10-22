@@ -1694,8 +1694,8 @@ function Employees({
     [object, setObject] = useState(""),
     [salary, setSalary] = useState("0"),
     [advance, setAdvance] = useState("0"),
-    [day1, setDay1] = useState(15),
-    [day2, setDay2] = useState(30);
+    [day1, setDay1] = useState(""),
+    [day2, setDay2] = useState("");
   function edit(x?: Employee) {
     setEditing(
       x || {
@@ -1705,8 +1705,8 @@ function Employees({
         object_id: null,
         salary: 0,
         advance: 0,
-        day_advance: 15,
-        day_final: 30,
+        day_advance: null,
+        day_final: null,
         active: true,
       },
     );
@@ -1715,20 +1715,22 @@ function Employees({
     setObject(x?.object_id || "");
     setSalary(String(x?.salary || 0));
     setAdvance(String(x?.advance || 0));
-    setDay1(x?.day_advance || 15);
-    setDay2(x?.day_final || 30);
+    setDay1(x?.day_advance ? String(x.day_advance) : "");
+    setDay2(x?.day_final ? String(x.day_final) : "");
   }
   async function save() {
     if (amount(advance) > amount(salary))
       throw Error("Аванс не может превышать зарплату");
+    if (amount(salary) > 0 && (!day1 || !day2))
+      throw Error("Укажите оба дня выплаты зарплаты");
     const payload = {
       full_name: name,
       position,
       object_id: object || null,
       salary: amount(salary),
       advance: amount(advance),
-      day_advance: day1,
-      day_final: day2,
+      day_advance: day1 ? Number(day1) : null,
+      day_final: day2 ? Number(day2) : null,
     };
     let id = editing?.id || "";
     if (id) await mutate("employees", payload, id);
@@ -1759,8 +1761,8 @@ function Employees({
       }
       if (amount(salary) > 0) {
         for (const [stage, day, sum] of [
-          ["Аванс", day1, amount(advance)],
-          ["Окончательный расчет", day2, amount(salary) - amount(advance)],
+          ["Аванс", Number(day1), amount(advance)],
+          ["Окончательный расчет", Number(day2), amount(salary) - amount(advance)],
         ] as const) {
           if (sum <= 0) continue;
           const first = iso(
@@ -1830,7 +1832,9 @@ function Employees({
               </p>
               <strong>{money(x.salary)} / мес.</strong>
               <small>
-                Аванс: {x.day_advance} числа · расчет: {x.day_final} числа
+                {x.day_advance && x.day_final
+                  ? `Аванс: ${x.day_advance} числа · расчет: ${x.day_final} числа`
+                  : "Дни выплат не указаны"}
               </small>
               <button className="secondary" onClick={() => edit(x)}>
                 Настроить
@@ -1921,7 +1925,7 @@ function Employees({
                   min="1"
                   max="31"
                   value={day1}
-                  onChange={(e) => setDay1(Number(e.target.value))}
+                  onChange={(e) => setDay1(e.target.value)}
                 />
               </label>
               <label>
@@ -1931,7 +1935,7 @@ function Employees({
                   min="1"
                   max="31"
                   value={day2}
-                  onChange={(e) => setDay2(Number(e.target.value))}
+                  onChange={(e) => setDay2(e.target.value)}
                 />
               </label>
             </div>
