@@ -2058,7 +2058,16 @@ function Objects({
         <div className="chips">
           {d.categories.map((c) => (
             <span className="chip" key={c.id}>
-              {c.name} <small>({c.scope})</small>
+              {c.name}{" "}
+              <small>
+                ({
+                  {
+                    shop: "торговые точки",
+                    apartment: "квартиры",
+                    business: "бизнес",
+                  }[c.scope]
+                })
+              </small>
               <button
                 title="Переименовать"
                 onClick={() => {
