@@ -32,6 +32,17 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return json({ ok: true });
     }
+    const configured = !!(
+      Deno.env.get("GOOGLE_CLIENT_ID") &&
+      Deno.env.get("GOOGLE_CLIENT_SECRET") &&
+      Deno.env.get("GOOGLE_REDIRECT_URI") &&
+      Deno.env.get("TOKEN_ENCRYPTION_KEY")
+    );
+    if (
+      b.action === "sync-if-connected" &&
+      (!connection.google_refresh_token || !connection.google_calendar_id)
+    )
+      return json({ skipped: true });
     const token = connection.google_refresh_token
       ? await googleToken(uid)
       : null;
@@ -45,6 +56,8 @@ Deno.serve(async (req) => {
           ) || []
         : [];
       return json({
+        configured,
+        connected: !!connection.google_refresh_token,
         calendars,
         calendarId: connection.google_calendar_id,
         emailEnabled: connection.email_enabled,
@@ -64,7 +77,18 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return json({ ok: true });
     }
-    if (b.action !== "sync") throw Error("Unknown action");
+    if (!["sync", "sync-if-connected"].includes(b.action))
+      throw Error("Unknown action");
+    const generated = await service.rpc("generate_occurrences", {
+      p_user: uid,
+    });
+    if (generated.error) throw generated.error;
+    const { data: profile } = await service
+      .from("profiles")
+      .select("timezone")
+      .eq("id", uid)
+      .single();
+    const zone = profile?.timezone || "Europe/Moscow";
     const cal = connection.google_calendar_id;
     if (!cal) throw Error("Select a calendar");
     const { data: obligations, error: oe } = await service
@@ -97,7 +121,7 @@ Deno.serve(async (req) => {
         (x: { obligation_id: string }) => x.obligation_id === o.id,
       );
       const path = `/calendars/${encodeURIComponent(cal)}/events`;
-      if (o.status === "cancelled") {
+      if (o.status === "cancelled" || o.deleted_at) {
         if (link) {
           try {
             await google(
@@ -105,7 +129,9 @@ Deno.serve(async (req) => {
               token,
               "DELETE",
             );
-          } catch {}
+          } catch (e) {
+            if (!/Google Calendar (404|410):/.test(String(e))) throw e;
+          }
           await service
             .from("calendar_events")
             .delete()
@@ -121,13 +147,32 @@ Deno.serve(async (req) => {
         o.kind === "report"
           ? o.status === "accepted"
           : paid >= Number(o.planned_amount);
-      const next = new Date(o.due_date + "T12:00:00Z");
-      next.setUTCDate(next.getUTCDate() + 1);
+      const eventId = link?.event_id || "fc" + o.id.replaceAll("-", "");
       const event = {
         summary: (done ? "✓ " : "") + o.title,
-        description: `${o.kind === "report" ? "Отчет" : "Обязательство"} · План: ${o.planned_amount} ₽ · Оплачено: ${paid} ₽`,
-        start: { date: o.due_date },
-        end: { date: next.toISOString().slice(0, 10) },
+        description: `${o.kind === "report" ? "Отчет" : "Обязательство"} · План: ${o.planned_amount} ₽ · Оплачено: ${paid} ₽ · Осталось: ${Math.max(0, Number(o.planned_amount) - paid).toFixed(2)} ₽. Время 09:00 — напоминание, крайний срок относится ко всему дню.`,
+        start: { dateTime: o.due_date + "T09:00:00", timeZone: zone },
+        end: { dateTime: o.due_date + "T09:15:00", timeZone: zone },
+        visibility: "private",
+        transparency: "transparent",
+        reminders: {
+          useDefault: false,
+          overrides: done
+            ? []
+            : [
+                ...new Set([
+                  0,
+                  ...(o.reminder_days || []).filter(
+                    (d: number) => Number.isInteger(d) && d > 0 && d <= 28,
+                  ),
+                ]),
+              ]
+                .slice(0, 5)
+                .map((days) => ({
+                  method: "popup",
+                  minutes: Number(days) * 1440,
+                })),
+        },
         extendedProperties: { private: { financeObligationId: o.id } },
       };
       let result;
@@ -139,22 +184,26 @@ Deno.serve(async (req) => {
               "PUT",
               event,
             )
-          : await google(path, token, "POST", event);
+          : await google(path, token, "POST", { ...event, id: eventId });
       } catch (e) {
-        if (!link || !String(e).includes("404")) throw e;
-        result = await google(path, token, "POST", event);
+        if (!link && String(e).includes("409")) {
+          result = await google(path + "/" + eventId, token, "PUT", event);
+        } else if (link && /Google Calendar (404|410):/.test(String(e))) {
+          result = await google(path, token, "POST", {
+            ...event,
+            id: "fc" + crypto.randomUUID().replaceAll("-", ""),
+          });
+        } else throw e;
       }
-      const { error } = await service
-        .from("calendar_events")
-        .upsert(
-          {
-            user_id: uid,
-            obligation_id: o.id,
-            calendar_id: cal,
-            event_id: result.id,
-          },
-          { onConflict: "obligation_id,calendar_id" },
-        );
+      const { error } = await service.from("calendar_events").upsert(
+        {
+          user_id: uid,
+          obligation_id: o.id,
+          calendar_id: cal,
+          event_id: result.id,
+        },
+        { onConflict: "obligation_id,calendar_id" },
+      );
       if (error) throw error;
       synced++;
     }
